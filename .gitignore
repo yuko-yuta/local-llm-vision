@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+/.turbo/
 
 # production
 /build
@@ -23,6 +24,9 @@
 # misc
 .DS_Store
 *.pem
+Thumbs.db
+ehthumbs.db
+desktop.ini
 
 # debug
 npm-debug.log*
@@ -39,3 +43,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+certificates
+
+# drafts
+docs/article.md
+
+# claude code project instructions (contains personal info)
+AGENTS.md

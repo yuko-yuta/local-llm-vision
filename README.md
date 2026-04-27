@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Local LLM Vision
 
-## Getting Started
+Ollama + Gemma4 を使ったローカル完結の画像認識 Web アプリです。カメラ映像のリアルタイム OCR と名刺の自動スキャンに対応しています。
 
-First, run the development server:
+## 必要環境
+
+- Node.js 20+
+- [Ollama](https://ollama.com/) がインストール済みで起動していること
+- Gemma4 モデルがプル済みであること
+
+```bash
+ollama pull gemma4:e4b
+```
+
+## セットアップ
+
+```bash
+npm install
+```
+
+プロジェクトルートに `.env.local` を作成します。
+
+```env
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=gemma4:e4b
+```
+
+> Windows 11 では `localhost` が IPv6 に解決されるため、`127.0.0.1` を明示してください。
+
+## 起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`http://localhost:3000` をブラウザで開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 機能
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 通常認識モード
 
-## Learn More
+カメラ映像を 2 秒ごとに自動 OCR し、認識したテキストをリアルタイム表示します。「撮影して認識」ボタンで任意のタイミングに詳細な画像解析も実行できます。
 
-To learn more about Next.js, take a look at the following resources:
+### 名刺読み取りモード
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+カメラに名刺を向けると 3 秒ごとに自動スキャンが実行され、以下 10 項目を構造化して表示します。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- 氏名（漢字 / アルファベット / ふりがな）
+- 所属会社 / 役職・肩書
+- 会社住所（ビル名・階数・部屋番号を含む）
+- メールアドレス / TEL / FAX / Mobile
 
-## Deploy on Vercel
+## 技術スタック
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| カテゴリ | 技術 |
+|---|---|
+| フレームワーク | Next.js 16 (App Router) |
+| UI | React 19 / Tailwind CSS v4 |
+| 言語 | TypeScript |
+| LLM 基盤 | Ollama |
+| モデル | Gemma4 (`gemma4:e4b`) |
