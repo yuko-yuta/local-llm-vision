@@ -16,16 +16,18 @@ export interface OcrResponse {
 }
 
 export interface BusinessCardData {
-  name: string
-  nameAlphabet: string
-  nameKana: string
-  company: string
-  title: string
-  address: string
-  email: string
-  tel: string
-  fax: string
-  mobile: string
+  name: string          // 氏名
+  nameAlphabet: string  // 氏名（アルファベット）
+  nameKana: string      // ふりがな
+  company: string       // 社名
+  department: string    // 部署
+  title: string         // 肩書き
+  companyUrl: string    // 会社URL
+  address: string       // 住所
+  email: string         // メールアドレス
+  tel: string           // TEL（会社）
+  fax: string           // FAX
+  mobile: string        // 携帯番号
 }
 
 export interface CardRequest {
