@@ -60,6 +60,56 @@ function isCardEmpty(card: BusinessCardData): boolean {
   return CARD_FIELDS.every(({ key }) => !card[key])
 }
 
+// 名刺の各フィールドを編集する共通フォーム。
+// 名刺読み取り結果パネルと、保存済みリストの編集モードで共有する。
+function CardFieldsEditor({
+  value,
+  onChange,
+  idPrefix,
+}: {
+  value: BusinessCardData
+  onChange: (key: keyof BusinessCardData, value: string) => void
+  idPrefix: string
+}) {
+  return (
+    <>
+      {CARD_FIELDS.map(({ key, label, placeholder, multiline }) => {
+        const id = `${idPrefix}-${key}`
+        return (
+          <div key={key} className="px-4 py-2 border-b border-gray-700/50 last:border-b-0">
+            <label className="block text-xs text-gray-500 mb-1" htmlFor={id}>
+              {label}
+            </label>
+            {multiline ? (
+              <textarea
+                id={id}
+                value={value[key]}
+                placeholder={placeholder}
+                onChange={(e) => onChange(key, e.target.value)}
+                rows={2}
+                className="w-full bg-gray-900 border border-gray-700 focus:border-indigo-500 focus:outline-none rounded px-2 py-1.5 text-sm text-gray-100 placeholder:text-gray-600 resize-y"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            ) : (
+              <input
+                id={id}
+                type="text"
+                value={value[key]}
+                placeholder={placeholder}
+                onChange={(e) => onChange(key, e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 focus:border-indigo-500 focus:outline-none rounded px-2 py-1.5 text-sm text-gray-100 placeholder:text-gray-600"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 // AbortSignal.timeout が未サポートのブラウザ（iOS Safari 17.3 以前など）向け互換ラッパー
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms)
@@ -75,6 +125,9 @@ export default function VisionTester() {
   const [analyzeResult, setAnalyzeResult] = useState('')
   const [cardData, setCardData] = useState<BusinessCardData | null>(null)
   const [savedCards, setSavedCards] = useState<SavedCard[]>([])
+  // 保存済み名刺の編集状態。id が一致する行をフォーム表示し、draft を編集対象にする
+  const [editingSavedCardId, setEditingSavedCardId] = useState<string | null>(null)
+  const [editingDraft, setEditingDraft] = useState<BusinessCardData | null>(null)
   const [realtimeText, setRealtimeText] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isAutoScanning, setIsAutoScanning] = useState(false)
@@ -281,6 +334,38 @@ export default function VisionTester() {
 
   const handleDeleteSavedCard = (id: string) => {
     setSavedCards((prev) => prev.filter((c) => c.id !== id))
+    if (editingSavedCardId === id) {
+      setEditingSavedCardId(null)
+      setEditingDraft(null)
+    }
+  }
+
+  const handleStartEditSavedCard = (card: SavedCard) => {
+    setEditingSavedCardId(card.id)
+    setEditingDraft({ ...card.data })
+  }
+
+  const handleEditedFieldChange = (key: keyof BusinessCardData, value: string) => {
+    setEditingDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
+  }
+
+  const handleCancelEditSavedCard = () => {
+    setEditingSavedCardId(null)
+    setEditingDraft(null)
+  }
+
+  const handleApplyEditedSavedCard = () => {
+    if (!editingSavedCardId || !editingDraft) return
+    // 会社URL は保存時と同じく https:// 始まりへ正規化する
+    const normalized: BusinessCardData = {
+      ...editingDraft,
+      companyUrl: normalizeHttpsUrl(editingDraft.companyUrl),
+    }
+    setSavedCards((prev) =>
+      prev.map((c) => (c.id === editingSavedCardId ? { ...c, data: normalized } : c))
+    )
+    setEditingSavedCardId(null)
+    setEditingDraft(null)
   }
 
   const handleDownloadCsv = () => {
@@ -504,36 +589,11 @@ export default function VisionTester() {
               </div>
               {cardData ? (
                 <div className="flex-1 overflow-y-auto">
-                  {CARD_FIELDS.map(({ key, label, placeholder, multiline }) => (
-                    <div key={key} className="px-4 py-2 border-b border-gray-700/50 last:border-b-0">
-                      <label className="block text-xs text-gray-500 mb-1" htmlFor={`card-field-${key}`}>
-                        {label}
-                      </label>
-                      {multiline ? (
-                        <textarea
-                          id={`card-field-${key}`}
-                          value={cardData[key]}
-                          placeholder={placeholder}
-                          onChange={(e) => handleCardFieldChange(key, e.target.value)}
-                          rows={2}
-                          className="w-full bg-gray-900 border border-gray-700 focus:border-indigo-500 focus:outline-none rounded px-2 py-1.5 text-sm text-gray-100 placeholder:text-gray-600 resize-y"
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
-                      ) : (
-                        <input
-                          id={`card-field-${key}`}
-                          type="text"
-                          value={cardData[key]}
-                          placeholder={placeholder}
-                          onChange={(e) => handleCardFieldChange(key, e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 focus:border-indigo-500 focus:outline-none rounded px-2 py-1.5 text-sm text-gray-100 placeholder:text-gray-600"
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
-                      )}
-                    </div>
-                  ))}
+                  <CardFieldsEditor
+                    value={cardData}
+                    onChange={handleCardFieldChange}
+                    idPrefix="card-field"
+                  />
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center p-6 text-center text-gray-500 text-sm">
@@ -595,38 +655,91 @@ export default function VisionTester() {
               </div>
             ) : (
               <ul className="bg-gray-800 rounded-lg divide-y divide-gray-700/50 overflow-hidden">
-                {savedCards.map((card, index) => (
-                  <li key={card.id} className="flex items-start gap-3 px-4 py-3">
-                    <span className="text-xs text-gray-500 tabular-nums pt-0.5 w-6 shrink-0 text-right">
-                      {index + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm text-gray-100 font-medium break-all">
-                        {card.data.name || <span className="text-gray-600">（氏名なし）</span>}
-                        {card.data.nameKana && (
-                          <span className="text-xs text-gray-500 font-normal ml-1.5">({card.data.nameKana})</span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-400 break-all mt-0.5">
-                        {card.data.company || '—'}
-                        {card.data.department && ` / ${card.data.department}`}
-                        {card.data.title && ` / ${card.data.title}`}
-                      </div>
-                      {(card.data.mobile || card.data.tel) && (
-                        <div className="text-xs text-gray-500 break-all mt-0.5">
-                          {card.data.mobile || card.data.tel}
+                {savedCards.map((card, index) => {
+                  const isEditing = editingSavedCardId === card.id && editingDraft !== null
+                  return (
+                    <li key={card.id} className="px-4 py-3">
+                      {isEditing && editingDraft ? (
+                        // 編集モード: 共通フォームを表示し、保存/キャンセルで確定または破棄
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <span className="text-xs text-gray-400">
+                              <span className="text-gray-500">#{index + 1}</span> を編集中
+                            </span>
+                            <span className="text-[10px] text-gray-500">
+                              会社URL は保存時に https:// へ正規化されます
+                            </span>
+                          </div>
+                          <div className="bg-gray-900/40 border border-gray-700 rounded-lg overflow-hidden">
+                            <CardFieldsEditor
+                              value={editingDraft}
+                              onChange={handleEditedFieldChange}
+                              idPrefix={`saved-edit-${card.id}`}
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleCancelEditSavedCard}
+                              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-sm font-medium transition-colors shrink-0"
+                            >
+                              キャンセル
+                            </button>
+                            <button
+                              onClick={handleApplyEditedSavedCard}
+                              disabled={isCardEmpty(editingDraft)}
+                              className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+                            >
+                              変更を保存
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        // 閲覧モード: 既存のサマリ + 編集/削除ボタン
+                        <div className="flex items-start gap-3">
+                          <span className="text-xs text-gray-500 tabular-nums pt-0.5 w-6 shrink-0 text-right">
+                            {index + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-gray-100 font-medium break-all">
+                              {card.data.name || <span className="text-gray-600">（氏名なし）</span>}
+                              {card.data.nameKana && (
+                                <span className="text-xs text-gray-500 font-normal ml-1.5">({card.data.nameKana})</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-400 break-all mt-0.5">
+                              {card.data.company || '—'}
+                              {card.data.department && ` / ${card.data.department}`}
+                              {card.data.title && ` / ${card.data.title}`}
+                            </div>
+                            {(card.data.mobile || card.data.tel) && (
+                              <div className="text-xs text-gray-500 break-all mt-0.5">
+                                {card.data.mobile || card.data.tel}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <button
+                              onClick={() => handleStartEditSavedCard(card)}
+                              disabled={editingSavedCardId !== null}
+                              className="px-2.5 py-1.5 text-xs bg-indigo-900/40 hover:bg-indigo-800/60 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-200 rounded transition-colors"
+                              aria-label={`${card.data.name || '名刺'}を編集`}
+                            >
+                              編集
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSavedCard(card.id)}
+                              disabled={editingSavedCardId !== null}
+                              className="px-2.5 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/60 active:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed text-red-200 rounded transition-colors"
+                              aria-label={`${card.data.name || '名刺'}を削除`}
+                            >
+                              削除
+                            </button>
+                          </div>
                         </div>
                       )}
-                    </div>
-                    <button
-                      onClick={() => handleDeleteSavedCard(card.id)}
-                      className="shrink-0 px-2.5 py-1.5 text-xs bg-red-900/40 hover:bg-red-800/60 active:bg-red-800 text-red-200 rounded transition-colors"
-                      aria-label={`${card.data.name || '名刺'}を削除`}
-                    >
-                      削除
-                    </button>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             )}
             <p className="text-xs text-gray-500">
