@@ -1,15 +1,20 @@
-# Gemma4 画像認識Webアプリ - 実装計画
+# Local LLM Vision - 実装計画
+
+> Phase 1〜6 は初期計画（通常認識モードのみ）。Phase 7〜9 は後から追加された名刺読み取り機能。Phase 1〜8 は実装完了済み。
 
 ## フェーズ構成
 
-| フェーズ | 内容 | 優先度 |
-|---|---|---|
-| Phase 1 | プロジェクトセットアップ | 必須 |
-| Phase 2 | バックエンド（API Route）実装 | 必須 |
-| Phase 3 | フロントエンド（UI）実装 | 必須 |
-| Phase 4 | リアルタイムOCR実装 | 必須 |
-| Phase 5 | エラーハンドリング強化 | 必須 |
-| Phase 6 | 動作確認・調整 | 必須 |
+| フェーズ | 内容 | 優先度 | 状態 |
+|---|---|---|---|
+| Phase 1 | プロジェクトセットアップ | 必須 | ✅ 完了 |
+| Phase 2 | バックエンド（API Route）実装 | 必須 | ✅ 完了 |
+| Phase 3 | フロントエンド（UI）実装 | 必須 | ✅ 完了 |
+| Phase 4 | リアルタイムOCR実装 | 必須 | ✅ 完了 |
+| Phase 5 | エラーハンドリング強化 | 必須 | ✅ 完了 |
+| Phase 6 | 動作確認・調整 | 必須 | ✅ 完了 |
+| Phase 7 | 名刺読み取りモード | 追加機能 | ✅ 完了 |
+| Phase 8 | 保存リスト + インライン編集 + CSV | 追加機能 | ✅ 完了 |
+| Phase 9 | 各種 UX 改善 / モバイル耐性 | 追加機能 | 部分対応 |
 
 ---
 
@@ -281,6 +286,110 @@ Phase 1 (セットアップ)
   → Phase 4 (リアルタイムOCR)
   → Phase 5 (エラーハンドリング)
   → Phase 6 (動作確認)
+  → Phase 7 (名刺モード)
+  → Phase 8 (保存・編集・CSV)
+  → Phase 9 (UX改善)
 ```
 
 依存関係が少ない順に実装し、各フェーズ完了後に簡単な動作確認をすること。
+
+---
+
+## Phase 7: 名刺読み取りモード
+
+### タスク
+
+#### 7-1. 型・プロンプト追加
+
+- `src/types/vision.ts` に `BusinessCardData`（12 項目）と `CardRequest` / `CardResponse` を追加
+- Ollama 呼び出しを `/api/generate` から `/api/chat` に変更（gemma4 vision の現行 API）
+- `OllamaChatMessage` / `OllamaChatRequest` / `OllamaChatResponse` 型を追加
+
+#### 7-2. API 実装
+
+- `src/app/api/vision/card/route.ts` を新設
+- `CARD_PROMPT`（JSON 形式指定 + 抽出ルール + 住所の省略禁止ルール）を定義
+- `parseCardJson()`: コードフェンスや前後の余分テキストを除去し、最長一致で `{...}` を抽出してパース
+
+#### 7-3. UI モード切替
+
+- `appMode: 'general' | 'card'` を導入し、画面上部にタブを追加
+- 名刺モードでは `<video>` と結果パネルを横並び（モバイルは縦積み）
+- スキャン状態インジケータ（自動スキャン中 / 待機中）を映像左下に重ねる
+
+#### 7-4. 自動スキャンループ
+
+- `startCardLoop()` を 3 秒間隔・800px / 0.85 で実装
+- フロント側タイムアウト 60 秒、サーバー側 60 秒
+- `hasCardDataRef` で「編集中の cardData がある間は新規スキャン結果を破棄」する制御
+- 連続 3 回失敗で停止
+
+### 完了条件
+
+- カメラに名刺をかざすと 12 項目のフィールドが順次抽出される
+- 抽出済みの状態で次の名刺を映しても画面が壊れない
+- 連続エラー時にメッセージが出てループが停止する
+
+---
+
+## Phase 8: 保存リスト + インライン編集 + CSV
+
+### タスク
+
+#### 8-1. 結果パネルの編集化
+
+- 各フィールドを `<input>` / `<textarea>` (住所のみ) で編集可能に
+- `handleCardFieldChange(key, value)` で `cardData` をマージ更新
+- 「破棄」「リストに保存」ボタンを下部に配置
+
+#### 8-2. 保存リスト
+
+- `savedCards: SavedCard[]`（id + data）を `useState` で保持。永続化なし
+- 「リストに保存」で `companyUrl` を `normalizeHttpsUrl()` で `https://` 始まりへ正規化してから push
+- 行ごとに「削除」ボタン
+- 件数表示と「CSV ダウンロード」ボタン
+
+#### 8-3. 保存済みのインライン編集
+
+- 行ごとに「編集」ボタン。クリックで `editingSavedCardId` / `editingDraft` を設定
+- 編集モードでは結果パネルと同じ `CardFieldsEditor` を行内に展開
+- 「キャンセル」「変更を保存」ボタン。保存時に `companyUrl` を再正規化
+- 編集中は他行の編集・削除ボタンを `disabled`
+
+#### 8-4. CSV ダウンロード
+
+- `src/lib/csv.ts` を新設
+- `CSV_COLUMNS`: 結果パネル `CARD_FIELDS` と 1:1 で対応する 12 カラム
+- `cardsToCsv()`: RFC 4180 エスケープ（ダブルクォート・カンマ・改行のみクォート）、CRLF 改行、データ 0 件でもヘッダー出力
+- `downloadCsv()`: UTF-8 BOM を付けて Blob → `a[download]` クリック
+- `buildCsvFilename()`: `business_cards_YYYYMMDD_HHMMSS.csv`
+
+#### 8-5. 離脱警告
+
+- `savedCards.length >= 1` のとき `beforeunload` リスナを張る
+- リロード / タブ閉じの確認ダイアログ
+
+### 完了条件
+
+- 結果パネルの編集 → 保存 → 削除がすべて期待通り動く
+- 保存済み行を編集して保存できる
+- CSV を Excel で開いて文字化けしない（UTF-8 BOM 確認）
+- 0 件状態で CSV ダウンロードするとヘッダーのみの CSV が落ちる
+- 保存件がある状態でリロードしようとすると確認ダイアログが出る
+
+---
+
+## Phase 9: 各種 UX 改善 / モバイル耐性
+
+### タスク
+
+- [ ] `AbortSignal.timeout` の互換ラッパー（iOS Safari 17.3 以前向け）
+- [ ] カメラの `focusMode: 'continuous'` を対応端末で適用
+- [ ] iOS Safari でタブのタップが妨げられないよう、`overflow-hidden` を親に使わず各ボタンに `rounded`
+- [ ] エラー / ステータスメッセージの自動消去（保存通知は数秒後に消す）
+- [ ] `getCapabilities` の存在チェックでブラウザ互換を確保
+
+### 完了条件
+
+- iOS Safari / Android Chrome 双方で問題なく動作する
+- 編集中 / スキャン中 / 自動スキャン待機の状態が常時視覚的に分かる

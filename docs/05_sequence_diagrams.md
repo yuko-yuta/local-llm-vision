@@ -1,118 +1,147 @@
-# Gemma4 画像認識Webアプリ - シーケンス図
+# Local LLM Vision - シーケンス図
 
-## 1. 画像アップロード認識
+Ollama 呼び出しはすべて `POST /api/chat` で行い、`messages[].images` に base64 画像を載せて `data.message.content` を読む。
+
+## 1. 通常モード: 手動撮影 → 認識
 
 ```
 ユーザー          React UI           Next.js API        Ollama          gemma4
   │                │                    │                 │               │
-  │ 画像ファイル選択 │                    │                 │               │
+  │ 「カメラ起動」    │                    │                 │               │
   │────────────────>│                    │                 │               │
-  │                │ ファイルをbase64化   │                 │               │
-  │                │────────────┐        │                 │               │
-  │                │            │        │                 │               │
-  │                │<───────────┘        │                 │               │
-  │                │ selectedImageに格納  │                 │               │
+  │                │ getUserMedia()      │                 │               │
+  │                │ video.srcObject = s │                 │               │
+  │                │ OCRループ開始 (2秒)  │                 │               │
   │                │                    │                 │               │
-  │ 「認識する」クリック│                    │                 │               │
+  │ 「撮影して認識」  │                    │                 │               │
   │────────────────>│                    │                 │               │
-  │                │ POST /api/vision/analyze               │               │
-  │                │ {imageBase64, mode}│                 │               │
+  │                │ captureFrameFromVideo (1024/0.8)      │               │
+  │                │ POST /api/vision/analyze              │               │
   │                │────────────────────>│                 │               │
-  │                │                    │ POST /api/generate               │
+  │                │                    │ POST /api/chat   │               │
+  │                │                    │ (analyze prompt) │               │
   │                │                    │────────────────>│               │
-  │                │                    │                 │ 画像認識リクエスト │
   │                │                    │                 │───────────────>│
-  │                │                    │                 │               │
   │                │                    │                 │<──────────────│
-  │                │                    │                 │ 認識結果        │
   │                │                    │<────────────────│               │
-  │                │                    │ {response: "..."}│               │
+  │                │                    │ message.content  │               │
   │                │<────────────────────│                 │               │
   │                │ {result: "..."}     │                 │               │
-  │                │ analyzeResultに格納  │                 │               │
-  │<───────────────│                    │                 │               │
-  │ 認識結果表示     │                    │                 │               │
+  │<───────────────│ analyzeResult 表示  │                 │               │
 ```
 
-## 2. カメラ撮影認識
-
-```
-ユーザー          React UI           カメラ            Next.js API      Ollama
-  │                │                  │                  │               │
-  │ 「カメラ起動」クリック│                  │                  │               │
-  │────────────────>│                  │                  │               │
-  │                │ getUserMedia()    │                  │               │
-  │                │──────────────────>│                  │               │
-  │                │                  │ 映像ストリーム返却  │               │
-  │                │<──────────────────│                  │               │
-  │                │ videoタグにセット   │                  │               │
-  │                │ OCRループ開始       │                  │               │
-  │                │                  │                  │               │
-  │ 「撮影して認識」クリック│               │                  │               │
-  │────────────────>│                  │                  │               │
-  │                │ canvasに現在フレーム描画               │               │
-  │                │────────────┐      │                  │               │
-  │                │<───────────┘      │                  │               │
-  │                │ base64化          │                  │               │
-  │                │ POST /api/vision/analyze               │               │
-  │                │──────────────────────────────────────>│               │
-  │                │                  │                  │ POST /api/generate
-  │                │                  │                  │───────────────>│
-  │                │                  │                  │<──────────────│
-  │                │<──────────────────────────────────────│               │
-  │                │ analyzeResultに格納│                  │               │
-  │<───────────────│                  │                  │               │
-  │ 認識結果表示     │                  │                  │               │
-```
-
-## 3. リアルタイムOCRループ
+## 2. 通常モード: リアルタイム OCR ループ
 
 ```
 React UI (setInterval 2秒)        Next.js API        Ollama
   │                                    │               │
-  │ [カメラ起動時にループ開始]            │               │
+  │ [カメラ起動時に loop 開始]            │               │
   │                                    │               │
-  │ canvasに現在フレーム描画              │               │
-  │────────────┐                        │               │
-  │<───────────┘                        │               │
-  │ base64化（640px, quality 0.7）       │               │
-  │                                    │               │
-  │ isRealtimeOcrRunning === false のみ送信               │
+  │ isScanRunningRef === false         │               │
+  │ video.readyState >= 2              │               │
+  │ captureFrameFromVideo (640/0.7)     │               │
   │ POST /api/vision/ocr               │               │
   │────────────────────────────────────>│               │
-  │ isRealtimeOcrRunning = true         │               │
-  │                                    │ POST /api/generate (OCRプロンプト)
-  │                                    │───────────────>│
+  │ isScanRunningRef = true            │ POST /api/chat │
+  │ (OCR プロンプト)                    │───────────────>│
   │                                    │<──────────────│
-  │<────────────────────────────────────│               │
-  │ {text: "認識文字"}                  │               │
-  │ isRealtimeOcrRunning = false        │               │
+  │<────────────────────────────────────│ {text: "..."}  │
+  │ isScanRunningRef = false           │               │
   │                                    │               │
-  │ 前回テキストと比較                   │               │
-  │ 異なる場合のみ realtimeText 更新      │               │
+  │ 前回結果と異なる場合のみ realtimeText 更新            │
   │                                    │               │
-  │ [2秒後に次のループ]                  │               │
+  │ 失敗時は errorCountRef++           │               │
+  │ 連続 3 回 (OCR_MAX_CONSECUTIVE_ERRORS) でループ停止 │
   │                                    │               │
-  │ [カメラ停止時にループ終了]            │               │
+  │ [カメラ停止 / モード切替で loop 終了]                  │
 ```
 
-## 4. エラーハンドリングフロー
+## 3. 名刺モード: 自動スキャンループ
+
+```
+React UI (setInterval 3秒)        Next.js API        Ollama
+  │                                    │               │
+  │ [カメラ起動 + 名刺モードで loop 開始]                 │
+  │                                    │               │
+  │ isScanRunningRef === false         │               │
+  │ video.readyState >= 2              │               │
+  │ captureFrameFromVideo (800/0.85)    │               │
+  │ POST /api/vision/card              │               │
+  │────────────────────────────────────>│               │
+  │ isAutoScanning = true              │ POST /api/chat │
+  │ isScanRunningRef = true            │ (CARD_PROMPT)  │
+  │                                    │───────────────>│
+  │                                    │<──────────────│
+  │                                    │ JSON 抽出      │
+  │<────────────────────────────────────│ {card: {...}}  │
+  │ isAutoScanning = false             │               │
+  │                                    │               │
+  │ hasCardDataRef === false の場合    │               │
+  │   かつ 前回と JSON が異なれば setCardData             │
+  │   hasCardDataRef = true            │               │
+  │ hasCardDataRef === true の場合 (編集中)              │
+  │   結果を捨てる ─ 編集データの上書きを防ぐ              │
+  │                                    │               │
+  │ [カメラ停止 / モード切替 / カメラ未準備で loop 終了]    │
+```
+
+## 4. 名刺モード: 保存 → 編集 → CSV ダウンロード
+
+```
+ユーザー        React UI                    React State
+  │              │                              │
+  │ 結果パネルの各 input を編集                    │
+  │─────────────>│ handleCardFieldChange         │
+  │              │──────────────────────────────>│ cardData にマージ
+  │              │                              │
+  │ 「リストに保存」│                              │
+  │─────────────>│ normalizeHttpsUrl(companyUrl) │
+  │              │ savedCards.push               │
+  │              │ cardData = null               │
+  │              │ hasCardDataRef = false        │
+  │              │ → 自動スキャンが再開            │
+  │              │                              │
+  │ 保存済み行「編集」│                            │
+  │─────────────>│ editingSavedCardId = id       │
+  │              │ editingDraft = { ...data }    │
+  │              │ 他の行の編集/削除ボタンを無効化   │
+  │              │                              │
+  │ 各 input を編集 │                            │
+  │─────────────>│ handleEditedFieldChange       │
+  │              │                              │
+  │ 「変更を保存」  │                              │
+  │─────────────>│ normalizeHttpsUrl(...)        │
+  │              │ savedCards = prev.map(...)    │
+  │              │ editingSavedCardId = null     │
+  │              │                              │
+  │ 「CSV ダウンロード」│                          │
+  │─────────────>│ cardsToCsv(savedCards)        │
+  │              │ downloadCsv(filename, csv)    │
+  │              │ (Blob を a[download] でトリガ)  │
+  │              │                              │
+  │ ページ離脱     │                              │
+  │─────────────>│ savedCards.length > 0 で       │
+  │              │   beforeunload 確認ダイアログ    │
+```
+
+## 5. エラーハンドリングフロー
 
 ```
 React UI              Next.js API         Ollama
   │                       │                 │
   │ POST /api/vision/*    │                 │
   │───────────────────────>│                 │
-  │                       │ POST /api/generate
+  │                       │ POST /api/chat   │
   │                       │─────────────────>│
   │                       │                 │
-  │                       │  [Ollama未起動の場合]
-  │                       │  fetch失敗 (ECONNREFUSED)
-  │                       │────────────┐    │
-  │                       │<───────────┘    │
-  │                       │ error判定        │
+  │                       │  [Ollama 未起動]
+  │                       │  fetch error → cause.code === 'ECONNREFUSED'
+  │                       │                 │
   │                       │ 500 {error: "Ollamaが起動していません..."}
   │<───────────────────────│                 │
-  │ errorMessageにセット   │                 │
-  │ ステータス表示          │                 │
+  │ errorMessage にセット   │                 │
+  │ 連続 3 回失敗 → 対応する loop 自動停止                 │
+  │                       │                 │
+  │                       │  [Ollama 404]    │
+  │                       │  → 500 {error: "gemma4モデルが見つかりません..."}
 ```
